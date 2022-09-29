@@ -1,0 +1,43 @@
+FROM fedora:34 AS base
+ENV CONTAINER_IMAGE="ghcr.io/richstokes/k8s-fah:master"
+RUN echo $'\
+[kubernetes]\n\
+name=Kubernetes\n\
+baseurl=https://packages.cloud.google.com/yum/repos/kubernetes-el7-$basearch\n\
+enabled=1\n\
+gpgcheck=1\n\
+gpgkey=https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg\n\
+' > /etc/yum.repos.d/kubernetes.repo
+RUN cat /etc/yum.repos.d/kubernetes.repo
+RUN dnf install -y go podman kubectl
+RUN go install sigs.k8s.io/kind@v0.16.0
+RUN uname -a
+RUN /root/go/bin/kind version
+RUN kubectl version --client
+
+
+FROM base AS test
+RUN go env
+RUN ls /root/go/bin
+
+FROM test AS e2e
+WORKDIR /go/src/github.com/richstokes/k8s-fah
+COPY ./folding-cpu.yaml ./
+RUN ls
+# Creating kind cluster requires running as privileged. docker build --platform=linux/arm64 -t k8s-fah-e2e . && docker run --rm -it --privileged k8s-fah-e2e
+# patch to one replica
+# patch to use image from CONTAINER_IMAGE
+# patch init container as well
+# print out uname to verify architecture in pod's container is amd64
+CMD ["/bin/sh", "-c", "echo \"Using container image: $CONTAINER_IMAGE\" && \
+    /root/go/bin/kind create cluster && \
+    kubectl cluster-info --context kind-kind && \
+    kubectl create -f folding-cpu.yaml && \
+    kubectl patch deployment fah-cpu -p '{\"spec\":{\"replicas\":1}}' && \
+    kubectl patch deployment fah-cpu -p \"{\\"spec\\":{\\"template\\":{\\"spec\\":{\\"containers\\":[{\\"name\\":\\"fah-cpu\\",\\"image\\":\\"${CONTAINER_IMAGE}\\"}]}}}}\" && \
+    kubectl patch deployment fah-cpu -p \"{\\"spec\\":{\\"template\\":{\\"spec\\":{\\"initContainers\\":[{\\"name\\":\\"fah-cpu-init\\",\\"image\\":\\"${CONTAINER_IMAGE}\\"}]}}}}\" && \
+    kubectl rollout status deployment fah-cpu --timeout=300s && \
+    kubectl get deployment/fah-cpu -o yaml && \
+    kubectl get pods -oyaml && \
+    kubectl exec deployment/fah-cpu -- /bin/sh -c \"uname -a\" \
+    "]

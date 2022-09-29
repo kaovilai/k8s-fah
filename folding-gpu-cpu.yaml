@@ -81,7 +81,7 @@ spec:
       initContainers:
         - name: copy-config
           imagePullPolicy: Always
-          image: "richstokes20/fah-covid:latest"
+          image: "ghcr.io/kaovilai/k8s-fah:master"
           command:
             - "sh"
             - "-c"
